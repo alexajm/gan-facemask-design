@@ -1,0 +1,3 @@
+data/masked/*
+data/unmasked/*
+.DS_Store
