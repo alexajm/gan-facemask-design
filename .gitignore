@@ -1,3 +1,4 @@
 data/masked/*
 data/unmasked/*
 .DS_Store
+venv_gan/
