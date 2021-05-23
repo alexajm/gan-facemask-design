@@ -9,8 +9,8 @@ class Projector(nn.Module):
         super(Projector, self).__init__()
 
         # layers
-        # input: 128x128 RGB image (with mask)
-        # output: 128x128 RGB image (mask removed)
+        # input: 128x128 RGB image
+        # output: 128x128 transparency mask
         self.h1 = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=6, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -19,19 +19,25 @@ class Projector(nn.Module):
             nn.Conv2d(in_channels=6, out_channels=12, kernel_size=3, padding=1),
             nn.ReLU(),
             )
+        self.h3 = nn.Sequential(
+            nn.Conv2d(in_channels=12, out_channels=18, kernel_size=3, padding=1),
+            nn.ReLU(),
+            )
         self.output = nn.Sequential(
-            nn.Conv2d(in_channels=12, out_channels=3, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=18, out_channels=1, kernel_size=3, padding=1),
+            nn.Sigmoid()
             )
 
         # optimizer (Adam)
         self.optimizer = optim.Adam(self.parameters(), learning_rate)
 
         # loss (MSE)
-        self.loss = nn.MSELoss()
+        self.criterion = nn.MSELoss()
 
     def forward(self, x):
         y = self.h1(x)
         y = self.h2(y)
+        y = self.h3(y)
         y = self.output(y)
         return y
 
@@ -42,9 +48,9 @@ class Projector(nn.Module):
         outputs = outputs[shuffled_indices,:,:,:]
         return inputs, outputs
 
-    def batch_data(self, inputs, outputs, batch_size=32):
+    def batch_data(self, inputs, outputs, batch_size=16):
         n_examples = outputs.shape[0]
-        return [ (inputs[batch_size * i:batch_size * (i+1),:,:,:], outputs[batch_size * i:batch_size * (i+1),:,:,:]) for i in range(n_examples // batch_size) ]
+        return [ (inputs[batch_size * i:batch_size * (i+1),:,:,:], outputs[batch_size * i:batch_size * (i+1),:,:]) for i in range(n_examples // batch_size) ]
 
     def train_batch(self, batch):
         inputs, correct_outputs = batch
@@ -55,16 +61,16 @@ class Projector(nn.Module):
         self.optimizer.step()
         return float(loss) / len(batch_outputs)
 
-    def fit(inputs, outputs, num_epochs=10):
+    def fit(self, inputs, outputs, num_epochs=10):
         # set model to train mode
         self.train()
 
         # train over desired number of epochs
         epoch_loss = 0
-        for epoch in range(1, num_epochs + 1)
+        for epoch in range(1, num_epochs + 1):
             # sort data into minibatches
             inputs, outputs = self.shuffle_data(inputs, outputs)
-            minibatches = self.batch_data(inputs, outputs)            
+            minibatches = self.batch_data(inputs, outputs)        
 
             # train on each minibatch
             epoch_loss = 0
@@ -77,6 +83,24 @@ class Projector(nn.Module):
 
         # return training accuracy
         return epoch_loss
+
+    def predict(self, x):
+        if len(x.shape) < 4:
+            x = torch.unsqueeze(x, 0)
+        y = self.forward(x)
+        return y
+
+    def evaluate(self, inputs, correct_outputs):
+        # set model to eval mode
+        self.eval()
+
+        # forward propagation
+        batch_outputs = self.forward(inputs)
+
+        # return test loss
+        loss = self.criterion(batch_outputs.float(), correct_outputs.float())
+        n_examples = correct_outputs.shape[0]
+        return float(loss) / n_examples
 
 
 

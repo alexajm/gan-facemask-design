@@ -1,5 +1,6 @@
 data/masked/*
 data/unmasked/*
+data/transparent/*
 .DS_Store
 venv_gan/
 .ipynb_checkpoints/

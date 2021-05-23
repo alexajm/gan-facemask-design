@@ -28,7 +28,7 @@ class Generator(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), learning_rate)
 
     def forward(self, latent_=None):
-        latent = latent_ if latent_ is not None else np.random.rand(100, 1)
+        latent = latent_ if latent_ is not None else torch.rand(1, 100)
         layer1 = self.h1(latent)
         output = self.output(layer1)
         return torch.reshape(output, self.output_dim)
@@ -79,6 +79,7 @@ class GAN(nn.Module):
         # return discriminator's classification accuracies
         # NOTE: need to be returning something the generator can train on, e.g. softmax probs?
         return np.mean(masked_identities == masked_ids), np.mean(generator_identities == masked_ids)
+
 
 
 
