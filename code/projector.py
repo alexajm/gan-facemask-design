@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch import nn, optim
+from torchvision.transforms import CenterCrop
 
 
 class Projector(nn.Module):
@@ -8,24 +9,31 @@ class Projector(nn.Module):
         # initialize
         super(Projector, self).__init__()
 
+        # hyperparameters
+        channels = [3, 6, 12, 18, 24, 1]
+
         # layers
         # input: 128x128 RGB image
         # output: 128x128 transparency mask
         self.h1 = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=6, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=channels[0], out_channels=channels[1], kernel_size=3, padding=1),
             nn.ReLU(),
             )
         self.h2 = nn.Sequential(
-            nn.Conv2d(in_channels=6, out_channels=12, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=channels[1], out_channels=channels[2], kernel_size=3, padding=1),
             nn.ReLU(),
             )
         self.h3 = nn.Sequential(
-            nn.Conv2d(in_channels=12, out_channels=18, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=channels[2], out_channels=channels[3], kernel_size=3, padding=1),
+            nn.ReLU(),
+            )
+        self.h4 = nn.Sequential(
+            nn.Conv2d(in_channels=channels[3], out_channels=channels[4], kernel_size=3, padding=1),
             nn.ReLU(),
             )
         self.output = nn.Sequential(
-            nn.Conv2d(in_channels=18, out_channels=1, kernel_size=3, padding=1),
-            nn.Sigmoid()
+            nn.Conv2d(in_channels=channels[4], out_channels=channels[5], kernel_size=3, padding=1),
+            nn.Sigmoid(),
             )
 
         # optimizer (Adam)
@@ -38,6 +46,7 @@ class Projector(nn.Module):
         y = self.h1(x)
         y = self.h2(y)
         y = self.h3(y)
+        y = self.h4(y)
         y = self.output(y)
         return y
 
@@ -84,10 +93,13 @@ class Projector(nn.Module):
         # return training accuracy
         return epoch_loss
 
-    def predict(self, x):
-        if len(x.shape) < 4:
+    def predict(self, x, process=False):
+        if len(x.shape) < 4:  # pre-process un-batched inputs
             x = torch.unsqueeze(x, 0)
         y = self.forward(x)
+        if process:  # post-process outputs to enhance mask quality
+            avg = torch.mean(y)
+            y = (y > avg).astype('int')
         return y
 
     def evaluate(self, inputs, correct_outputs):
