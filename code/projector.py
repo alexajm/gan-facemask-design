@@ -5,7 +5,7 @@ from torchvision.transforms import CenterCrop
 
 
 class Projector(nn.Module):
-    def __init__(self, learning_rate=1e-3):
+    def __init__(self, learning_rate=1e-3, load_path=None):
         # initialize
         super(Projector, self).__init__()
 
@@ -41,6 +41,10 @@ class Projector(nn.Module):
 
         # loss (MSE)
         self.criterion = nn.MSELoss()
+
+        # load prior weights
+        if load_path:
+            self.load_state_dict(torch.load(load_path))
 
     def forward(self, x):
         y = self.h1(x)
@@ -99,7 +103,7 @@ class Projector(nn.Module):
         y = self.forward(x)
         if process:  # post-process outputs to enhance mask quality
             avg = torch.mean(y)
-            y = (y > avg).astype('int')
+            y = (y > avg).type(torch.IntTensor)
         return y
 
     def evaluate(self, inputs, correct_outputs):
