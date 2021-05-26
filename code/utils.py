@@ -22,11 +22,14 @@ def train_batch(model, batch):
     '''Perform one iteration of model training given a single batch'''
     inputs, correct_outputs = batch
     model_outputs = model.forward(inputs)
-    model.optimizer.zero_grad()
-    loss = model.criterion(model_outputs, correct_outputs)
-    loss.backward()
-    model.optimizer.step()
-    return float(loss) / model_outputs.shape[0]
+    losses = np.array()
+    for optimizer, criterion in model.training_layers:
+        optimizer.zero_grad()
+        loss = criterion(model_outputs, correct_outputs)
+        loss.backward()
+        optimizer.step()
+        losses.append(float(loss) / model_outputs.shape[0])
+    return losses
 
 
 def fit(model, inputs, correct_outputs, num_epochs=10):

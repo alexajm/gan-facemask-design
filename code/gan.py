@@ -136,6 +136,13 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.model = InceptionResnetV1(pretrained='vggface2').eval()
 
+        # set trainable layer for competition against generator
+        self.finetune = self.model.last_linear
+        self.finetune.train()
+        self.optimizer = optim.Adam(self.finetune.parameters(), learning_rate)
+        # pdb.set_trace()
+        self.criterion = lambda x, y : -1 * nn.CrossEntropyLoss()(x, y)
+
     def forward(self, img):
         '''One forward propagation of the discriminator for a batch of images'''
         return self.model(img)
@@ -173,9 +180,12 @@ class GAN():
         self.discriminator = discriminator
         self.unmasked_embeddings = None
 
-        # train optimizer and loss on generator alone
-        self.optimizer = self.generator.optimizer
-        self.criterion = self.generator.criterion
+        # update discriminator k times per generator update
+        self.k = 1
+
+        # store optimizer-criterion pairs
+        self.training_layers = [(self.generator.optimizer, self.generator.criterion),
+                                (self.discriminator.optimizer, self.discriminator.criterion)]
 
     def compute_unmasked_embeddings(self, unmasked_faces):
         '''Compute and store database of embeddings for unmasked faces'''
@@ -215,7 +225,26 @@ class GAN():
     def fit(self, inputs, ids, num_epochs=10):
         '''Train GAN given masked faces as input and their ids as labels'''
         self.generator.train()
-        return utils.fit(self, inputs, ids, num_epochs=num_epochs)
+        # return utils.fit(self, inputs, ids, num_epochs=num_epochs)
+
+        epoch_loss = 0
+        for epoch in range(1, num_epochs + 1):
+            # sort data into minibatches
+            inputs, ids = utils.shuffle_data(inputs, ids)
+            minibatches = utils.batch_data(inputs, ids)
+
+            # train on each minibatch
+            epoch_loss = 0
+            for batch in minibatches:
+                epoch_loss += self.train_batch(batch)
+            epoch_loss /= len(minibatches)
+
+            # output loss
+            # if epoch % 10 == 0: print('Epoch {} loss: {}'.format(epoch, epoch_loss))
+            print('Epoch {} loss: {}'.format(epoch, epoch_loss))
+
+        # return training accuracy
+        return epoch_loss
 
     def evaluate(self, inputs, correct_classes):
         '''Evaluate classification accuracy of GAN for given inputs'''
@@ -229,6 +258,47 @@ class GAN():
         output_classes = torch.argmin(batch_outputs, dim=1)
         accuracy = sum(output_classes == correct_classes) / len(correct_classes)
         return accuracy
+
+    def train_batch(self, batch):
+        '''Perform one iteration of model training given a single batch'''
+        inputs, correct_outputs = batch
+        # model_outputs = self.forward(inputs)
+
+        # generate mask design from latent sample
+        mask = self.generator()
+
+        # project mask design onto images
+        generator_faces = self.project_mask(mask, inputs) - .5
+
+        # get embeddings from discriminator
+        generator_embeddings = self.discriminator(generator_faces)
+
+        # determine distances from known, unmasked embeddings
+        difference = self.unmasked_embeddings.unsqueeze(0) - generator_embeddings.unsqueeze(1)
+        generator_distances = torch.linalg.norm(difference, dim=2)
+
+        # generator loss
+        self.generator.optimizer.zero_grad()
+        self.discriminator.optimizer.zero_grad()
+        gen_loss = self.generator.criterion(generator_distances, correct_outputs)
+        gen_loss.backward(retain_graph=True)
+        self.generator.optimizer.step()
+
+        # get embeddings from discriminator
+        # pdb.set_trace()
+        generator_embeddings = self.discriminator(generator_faces.detach())
+
+        # determine distances from known, unmasked embeddings
+        difference = self.unmasked_embeddings.unsqueeze(0) - generator_embeddings.unsqueeze(1)
+        generator_distances = torch.linalg.norm(difference, dim=2)
+
+        # discriminator loss
+        
+        disc_loss = self.discriminator.criterion(generator_distances, correct_outputs)
+        disc_loss.backward(retain_graph=True)
+        self.discriminator.optimizer.step()
+
+        return float(gen_loss) / generator_distances.shape[0]
 
 
 
