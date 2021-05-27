@@ -4,30 +4,36 @@ from torch import nn, optim
 from facenet_pytorch import InceptionResnetV1
 import pdb
 import utils
+import styles
 
 
 class Generator(nn.Module):
-    def __init__(self, learning_rate=1e-3):
+    def __init__(self, learning_rate=1e-3, weight_decay=1e-3, styles=[]):
         '''Initialize generator for sampling facemask designs from latent space'''
         super(Generator, self).__init__()
         self.input_dim = 100
-        self.output_dim = (128, 128, 3)
+        self.output_dim = (3, 128, 128)
         self.learning_rate = learning_rate
+        self.styles = styles
 
         # network layers
         # input: 100-dim latent vector
         # output: 64x64x3 RGB image
         self.h1 = nn.Sequential(
-            nn.Linear(self.input_dim, 16),
+            nn.Linear(self.input_dim, 32),
+            nn.ReLU(),
+            )
+        self.h2 = nn.Sequential(
+            nn.Linear(32, 32),
             nn.ReLU(),
             )
         self.output = nn.Sequential(
-            nn.Linear(16, np.prod(self.output_dim)),
+            nn.Linear(32, np.prod(self.output_dim)),
             nn.Sigmoid(),
             )
 
         # optimization
-        self.optimizer = optim.Adam(self.parameters(), learning_rate)
+        self.optimizer = optim.Adam(self.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
         # loss (cross entropy)
         self.criterion = nn.CrossEntropyLoss()
@@ -35,9 +41,15 @@ class Generator(nn.Module):
     def forward(self, latent_=None):
         '''Generate a facemask design from the sampled latent space'''
         latent = latent_ if latent_ is not None else torch.rand(1, 100)
-        layer1 = self.h1(latent)
-        output = self.output(layer1)
-        return torch.reshape(output, self.output_dim)
+        y = self.h1(latent)
+        y = self.h2(y)
+        output = self.output(y)
+        output = torch.reshape(output, self.output_dim)
+
+        # apply styles
+        for style in self.styles:
+            output = style(output)
+        return output
 
 
 class Projector(nn.Module):

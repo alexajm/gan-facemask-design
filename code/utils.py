@@ -24,7 +24,7 @@ def train_batch(model, batch):
     model_outputs = model.forward(inputs)
     model.optimizer.zero_grad()
     loss = model.criterion(model_outputs, correct_outputs)
-    loss.backward()
+    loss.backward(retain_graph=True)
     model.optimizer.step()
     return float(loss) / model_outputs.shape[0]
 
