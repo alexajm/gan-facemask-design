@@ -10,7 +10,7 @@ def shuffle_data(inputs, outputs):
     return inputs, outputs
 
 
-def batch_data(inputs, outputs, batch_size=16):
+def batch_data(inputs, outputs, batch_size=32):
     '''Convert full input/output pairs to a list of batched tuples'''
     n_examples = outputs.shape[0]
     return [ (inputs[batch_size * i:batch_size * (i+1)],
