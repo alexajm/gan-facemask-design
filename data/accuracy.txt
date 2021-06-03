@@ -1,6 +1,6 @@
 facial recognition accuracy for...
-   random choice:		1.0%
-   training images:		6.2%
-   testing images:		0.0%
-   original masked images:	85.0%
+   random choice:		5.0%
+   training images:		31.2%
+   testing images:		75.0%
+   original masked images:	95.0%
    original unmasked images:	100.0%

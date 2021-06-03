@@ -171,7 +171,7 @@ class Discriminator(nn.Module):
 
 
 class GAN():
-    def __init__(self, generator, projector, discriminator, learning_rate=1e-3):
+    def __init__(self, generator, projector, discriminator, device=None):
         '''
         Initialize GAN
 
@@ -183,7 +183,15 @@ class GAN():
         self.generator = generator
         self.projector = projector
         self.discriminator = discriminator
+        self.device = device
         self.unmasked_embeddings = None
+
+        # send models to device if provided
+        if device:
+            self.generator.to(device)
+            self.projector.to(device)
+            self.discriminator.to(device)
+            self.unmasked_embeddings.to(device)
 
         # train optimizer and loss on generator alone
         self.optimizer = self.generator.optimizer
@@ -191,7 +199,9 @@ class GAN():
 
     def compute_unmasked_embeddings(self, unmasked_faces):
         '''Compute and store database of embeddings for unmasked faces'''
+        if self.device: unmasked_faces.to(self.device)
         self.unmasked_embeddings = self.discriminator(unmasked_faces)
+        if self.device: unmasked_faces.to(torch.device('cpu'))
 
     def generate_mask(self):
         '''Generate a facemask design'''
@@ -229,18 +239,38 @@ class GAN():
         self.generator.train()
         return utils.fit(self, inputs, ids, num_epochs=num_epochs)
 
-    def evaluate(self, inputs, correct_classes):
+    def evaluate(self, inputs, correct_classes, batch_size=64):
         '''Evaluate classification accuracy of GAN for given inputs'''
         # set model to eval mode
         self.generator.eval()
 
-        # forward propagation
-        batch_outputs = self.forward(inputs)
+        if self.device:
+            # compute in batches
+            accuracies = []
+            minibatches = utils.batch_data(inputs, correct_classes, batch_size=batch_size)
+            for batch in minibatches:
+                # collect batch and send to CUDA
+                batch_inputs, batch_correct_classes = batch
+                batch_inputs.to(self.device)
+                batch_correct_classes.to(self.device)     
 
-        # calculate classification accuracy
-        output_classes = torch.argmin(batch_outputs, dim=1)
-        accuracy = sum(output_classes == correct_classes) / len(correct_classes)
-        return accuracy
+                # calculate classification accuracy
+                batch_outputs = self.forward(batch_inputs)
+                batch_output_classes = torch.argmin(batch_outputs, dim=1)
+                accuracies.append(sum(batch_output_classes == batch_correct_classes) / len(batch_correct_classes))
+
+                # return batch to CPU
+                batch_inputs.to(torch.device('cpu'))
+                batch_correct_classes.to(torch.device('cpu'))
+            return sum(accuracies) / len(accuracies)
+        else:
+            # forward propagation
+            batch_outputs = self.forward(inputs)
+
+            # calculate classification accuracy
+            output_classes = torch.argmin(batch_outputs, dim=1)
+            accuracy = sum(output_classes == correct_classes) / len(correct_classes)
+            return accuracy
 
 
 

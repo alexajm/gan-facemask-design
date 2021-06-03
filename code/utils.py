@@ -10,7 +10,7 @@ def shuffle_data(inputs, outputs):
     return inputs, outputs
 
 
-def batch_data(inputs, outputs, batch_size=32):
+def batch_data(inputs, outputs, batch_size=16):
     '''Convert full input/output pairs to a list of batched tuples'''
     n_examples = outputs.shape[0]
     return [ (inputs[batch_size * i:batch_size * (i+1)],
@@ -20,12 +20,19 @@ def batch_data(inputs, outputs, batch_size=32):
 
 def train_batch(model, batch):
     '''Perform one iteration of model training given a single batch'''
+    # send data to CUDA if necessary
+    if model.device: batch.to(model.device)
+
+    # train batch
     inputs, correct_outputs = batch
     model_outputs = model.forward(inputs)
     model.optimizer.zero_grad()
     loss = model.criterion(model_outputs, correct_outputs)
     loss.backward(retain_graph=True)
     model.optimizer.step()
+
+    # return data to CPU if necessary
+    if model.device: batch.to(torch.device('cpu'))
     return float(loss) / model_outputs.shape[0]
 
 
