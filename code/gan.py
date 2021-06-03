@@ -134,6 +134,7 @@ class Projector(nn.Module):
     def project_mask(self, facemask, masked_faces, process=False):
         '''Project a facemask design onto images of masked individuals'''
         transparency_masks = self.predict(masked_faces, process=process)
+        if masked_faces.device.type == 'cuda': transparency_masks = transparency_masks.to(torch.device('{}:{}'.format(masked_faces.device.type, masked_faces.device.index)))
         if facemask.shape[2] == 3:
             facemask = torch.transpose(facemask, 2, 1)
             facemask = torch.transpose(facemask, 1, 0)
@@ -191,7 +192,6 @@ class GAN():
             self.generator.to(device)
             self.projector.to(device)
             self.discriminator.to(device)
-            self.unmasked_embeddings.to(device)
 
         # train optimizer and loss on generator alone
         self.optimizer = self.generator.optimizer
@@ -199,9 +199,9 @@ class GAN():
 
     def compute_unmasked_embeddings(self, unmasked_faces):
         '''Compute and store database of embeddings for unmasked faces'''
-        if self.device: unmasked_faces.to(self.device)
+        if self.device: unmasked_faces = unmasked_faces.to(self.device)
         self.unmasked_embeddings = self.discriminator(unmasked_faces)
-        if self.device: unmasked_faces.to(torch.device('cpu'))
+        if self.device: unmasked_faces = unmasked_faces.to(torch.device('cpu'))
 
     def generate_mask(self):
         '''Generate a facemask design'''
@@ -221,7 +221,7 @@ class GAN():
     def forward(self, masked_faces):
         '''One forward propagation of the GAN for a batch of faces'''
         # generate mask design from latent sample
-        mask = self.generator()
+        mask = self.generator(torch.rand(1, 100).to(self.device)) if self.device else self.generator()
 
         # project mask design onto images
         generator_faces = self.project_mask(mask, masked_faces) - .5
@@ -251,8 +251,8 @@ class GAN():
             for batch in minibatches:
                 # collect batch and send to CUDA
                 batch_inputs, batch_correct_classes = batch
-                batch_inputs.to(self.device)
-                batch_correct_classes.to(self.device)     
+                batch_inputs = batch_inputs.to(self.device)
+                batch_correct_classes = batch_correct_classes.to(self.device)
 
                 # calculate classification accuracy
                 batch_outputs = self.forward(batch_inputs)
@@ -260,8 +260,8 @@ class GAN():
                 accuracies.append(sum(batch_output_classes == batch_correct_classes) / len(batch_correct_classes))
 
                 # return batch to CPU
-                batch_inputs.to(torch.device('cpu'))
-                batch_correct_classes.to(torch.device('cpu'))
+                batch_inputs = batch_inputs.to(torch.device('cpu'))
+                batch_correct_classes = batch_correct_classes.to(torch.device('cpu'))
             return sum(accuracies) / len(accuracies)
         else:
             # forward propagation
@@ -270,6 +270,52 @@ class GAN():
             # calculate classification accuracy
             output_classes = torch.argmin(batch_outputs, dim=1)
             accuracy = sum(output_classes == correct_classes) / len(correct_classes)
+            return accuracy
+
+    def discriminator_evaluate(self, query, target, batch_size=64):
+        '''Evaluate classification accuracy of discriminator for given inputs'''
+        if self.device:
+            # compute in batches
+            accuracies = []
+            minibatches = utils.batch_data(query, target, batch_size=batch_size)
+            for idx, batch in enumerate(minibatches):
+                # collect batch and send to CUDA
+                batch_queries, batch_targets = batch
+                batch_queries = batch_queries.to(self.device)
+                batch_targets = batch_targets.to(self.device)
+
+                # get embeddings
+                target_embeddings = self.forward(batch_targets)
+                query_embeddings = self.forward(batch_queries)
+
+                # find distances between embeddings
+                target_embeddings = torch.unsqueeze(target_embeddings, 1)
+                query_embeddings = torch.unsqueeze(query_embeddings, 0)
+                distances = torch.norm(target_embeddings - query_embeddings, dim=2)
+
+                # classify queried images
+                classifications = torch.argmin(distances, dim=0) + (idx * batch_size)
+                id_range = torch.Tensor([ (idx * batch_size) + i for i in range(batch_size) ]).to(self.device)
+                accuracies.append(sum(classifications == id_range) / batch_size)
+
+                # return batch to CPU
+                batch_queries = batch_queries.to(torch.device('cpu'))
+                batch_targets = batch_targets.to(torch.device('cpu'))
+            return sum(accuracies) / len(accuracies)
+        else:
+            # get embeddings
+            target_embeddings = self.forward(target)
+            query_embeddings = self.forward(query)
+
+            # find distances between embeddings
+            target_embeddings = torch.unsqueeze(target_embeddings, 1)
+            query_embeddings = torch.unsqueeze(query_embeddings, 0)
+            distances = torch.norm(target_embeddings - query_embeddings, dim=2)
+
+            # classify queried images and return accuracy
+            num_queries = query.shape[0]
+            classifications = torch.argmin(distances, dim=0)
+            accuracy = sum(classifications == torch.Tensor([ i for i in range(num_queries) ])) / num_queries
             return accuracy
 
 

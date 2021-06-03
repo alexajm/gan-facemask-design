@@ -89,9 +89,9 @@ def main(num_faces, cuda, verbose=False):
         axes[0,idx].get_yaxis().set_ticks([])
         
         # generated mask image
-        mask = gan.generator()
+        mask = gan.generator(torch.rand(1, 100).to(device)) if device else gan.generator()
         masked_tensor = masked_faces[idx].unsqueeze(0)
-        if device: masked_tensor.to(device)
+        if device: masked_tensor = masked_tensor.to(device)
         masked_image = gan.project_mask(mask, masked_tensor, process=True)[0]
         masked_image = torch.transpose(masked_image, 0, 1)
         masked_image = torch.transpose(masked_image, 1, 2)
