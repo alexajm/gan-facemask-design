@@ -241,12 +241,7 @@ class GAN():
         generator_distances = torch.linalg.norm(difference, dim=2)
         return generator_distances
 
-    def fit(self, inputs, ids, num_epochs=10):
-        '''Train GAN given masked faces as input and their ids as labels'''
-        self.generator.train()
-        return utils.fit(self, inputs, ids, num_epochs=num_epochs)
-
-    def fit(self, inputs, correct_ids, num_epochs=10):
+    def fit(self, masked_faces, unmasked_faces, correct_ids, num_epochs=10):
         # set models to train mode
         self.generator.train()
         self.discriminator.train()
@@ -256,8 +251,8 @@ class GAN():
         dis_epoch_loss = 0
         for epoch in range(1, num_epochs + 1):
             # sort data into minibatches
-            inputs, correct_ids = utils.shuffle_data(inputs, correct_ids)
-            minibatches = utils.batch_data(inputs, correct_ids)
+            masked_faces, unmasked_faces, correct_ids = self.shuffle_data(masked_faces, unmasked_faces, correct_ids)
+            minibatches = self.batch_data(masked_faces, unmasked_faces, correct_ids)
 
             # train on each minibatch
             gen_epoch_loss = 0
@@ -272,12 +267,31 @@ class GAN():
             # output loss
             if epoch % 10 == 0: print('Epoch {} losses: \t\t{} \t\t{}'.format(epoch, gen_epoch_loss, dis_epoch_loss))
 
+    def shuffle_data(self, masked, unmasked, outputs):
+        '''Shuffle the first dimension of a set of input/output data'''
+        n_examples = outputs.shape[0]
+        shuffled_indices = torch.randperm(n_examples)
+        masked = masked[shuffled_indices]
+        unmasked = unmasked[shuffled_indices]
+        outputs = outputs[shuffled_indices]
+        return masked, unmasked, outputs
+
+
+    def batch_data(self, masked, unmasked, outputs, batch_size=16):
+        '''Convert full input/output pairs to a list of batched tuples'''
+        n_examples = outputs.shape[0]
+        return [ (masked[batch_size * i:batch_size * (i+1)],
+                  unmasked[batch_size * i:batch_size * (i+1)],
+                  outputs[batch_size * i:batch_size * (i+1)],)
+                 for i in range(n_examples // batch_size) ]
+
     def train_batch(self, batch):
         '''Perform one iteration of model training given a single batch'''
         # send data to CUDA if necessary
-        masked_faces, correct_ids = batch
+        masked_faces, unmasked_faces, correct_ids = batch
         if self.device:
             masked_faces = masked_faces.to(self.device)
+            unmasked_faces = unmasked_faces.to(self.device)
             correct_ids = correct_ids.to(self.device)
 
         # generate mask design from latent sample
@@ -299,7 +313,16 @@ class GAN():
         generator_loss.backward(retain_graph=True)
         self.generator.optimizer.step()
 
-        # train discriminator
+        # train discriminator (unmasked)
+        new_unmasked_embeddings = self.discriminator(unmasked_faces)
+        difference = self.unmasked_embeddings.unsqueeze(0) - new_unmasked_embeddings.unsqueeze(1)
+        unmasked_distances = torch.linalg.norm(difference, dim=2)
+        self.discriminator.optimizer.zero_grad()
+        discriminator_loss = self.discriminator.criterion(unmasked_distances, correct_ids)
+        discriminator_loss.backward(retain_graph=True)
+        self.discriminator.optimizer.step()
+
+        # train discriminator (masked)
         detached_faces = generator_faces.detach()
         detached_embeddings = self.discriminator(detached_faces)
         difference = self.unmasked_embeddings.unsqueeze(0) - detached_embeddings.unsqueeze(1)
@@ -311,11 +334,11 @@ class GAN():
 
         # return data to CPU if necessary
         if self.device:
-            inputs = inputs.to(torch.device('cpu'))
-            correct_outputs = correct_outputs.to(torch.device('cpu'))
+            masked_faces = masked_faces.to(torch.device('cpu'))
+            correct_ids = correct_ids.to(torch.device('cpu'))
         return float(generator_loss) / generator_distances.shape[0], float(discriminator_loss) / detached_distances.shape[0]
 
-    def evaluate(self, inputs, correct_classes, batch_size=64):
+    def evaluate(self, inputs, correct_classes, batch_size=16):
         '''Evaluate classification accuracy of GAN for given inputs'''
         # set model to eval mode
         self.generator.eval()
@@ -348,7 +371,7 @@ class GAN():
             accuracy = sum(output_classes == correct_classes) / len(correct_classes)
             return accuracy
 
-    def discriminator_evaluate(self, query, target, batch_size=64):
+    def discriminator_evaluate(self, query, target, batch_size=16):
         '''Evaluate classification accuracy of discriminator for given inputs'''
         if self.device:
             # compute in batches

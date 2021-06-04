@@ -64,12 +64,13 @@ def main(num_faces, cuda, verbose=False):
 
     # split data into training and testing sets
     split = int(.8 * num_faces)
+    static_faces = unmasked_faces[:split]
     train_input, train_output = masked_faces[:split], torch.Tensor(idx_to_face_id[:split]).long()
     test_input, test_output = masked_faces[split:], torch.Tensor(idx_to_face_id[split:]).long()
 
     # train
     # gan.fit(train_input, train_output, num_epochs=20)
-    gan.fit(train_input, train_output, num_epochs=100)
+    gan.fit(train_input, static_faces, train_output, num_epochs=100)
     # gan.learning_rate = 2e-4
     #gan.fit(train_input, train_output, num_epochs=100)
 
