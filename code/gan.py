@@ -144,10 +144,17 @@ class Projector(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, learning_rate=1e-3):
+    def __init__(self, learning_rate=1e-3, regularization=1e-2):
         '''Initialize discriminator as pre-trained facial recognition model'''
         super(Discriminator, self).__init__()
         self.model = InceptionResnetV1(pretrained='vggface2').eval()
+
+        # set trainable layer for competition against generator
+        self.finetune = self.model.last_linear
+        self.finetune.train()
+        self.optimizer = optim.Adam(self.finetune.parameters(), learning_rate)
+        # pdb.set_trace()
+        self.criterion = lambda x, y : -1 * nn.CrossEntropyLoss()(x, y) + regularization * torch.sum(torch.abs(self.finetune.weight))
 
     def forward(self, img):
         '''One forward propagation of the discriminator for a batch of images'''
@@ -200,7 +207,7 @@ class GAN():
     def compute_unmasked_embeddings(self, unmasked_faces):
         '''Compute and store database of embeddings for unmasked faces'''
         if self.device: unmasked_faces = unmasked_faces.to(self.device)
-        self.unmasked_embeddings = self.discriminator(unmasked_faces)
+        self.unmasked_embeddings = self.discriminator(unmasked_faces).detach()
         if self.device: unmasked_faces = unmasked_faces.to(torch.device('cpu'))
 
     def generate_mask(self):
@@ -238,6 +245,75 @@ class GAN():
         '''Train GAN given masked faces as input and their ids as labels'''
         self.generator.train()
         return utils.fit(self, inputs, ids, num_epochs=num_epochs)
+
+    def fit(self, inputs, correct_ids, num_epochs=10):
+        # set models to train mode
+        self.generator.train()
+        self.discriminator.train()
+
+        # fit on data
+        gen_epoch_loss = 0
+        dis_epoch_loss = 0
+        for epoch in range(1, num_epochs + 1):
+            # sort data into minibatches
+            inputs, correct_ids = utils.shuffle_data(inputs, correct_ids)
+            minibatches = utils.batch_data(inputs, correct_ids)
+
+            # train on each minibatch
+            gen_epoch_loss = 0
+            dis_epoch_loss = 0
+            for batch in minibatches:
+                gen_loss, dis_loss = self.train_batch(batch)
+                gen_epoch_loss += gen_loss
+                dis_epoch_loss += dis_loss
+            gen_epoch_loss /= len(minibatches)
+            dis_epoch_loss /= len(minibatches)
+
+            # output loss
+            if epoch % 10 == 0: print('Epoch {} losses: \t\t{} \t\t{}'.format(epoch, gen_epoch_loss, dis_epoch_loss))
+
+    def train_batch(self, batch):
+        '''Perform one iteration of model training given a single batch'''
+        # send data to CUDA if necessary
+        masked_faces, correct_ids = batch
+        if self.device:
+            masked_faces = masked_faces.to(self.device)
+            correct_ids = correct_ids.to(self.device)
+
+        # generate mask design from latent sample
+        mask = self.generator(torch.rand(1, 100).to(self.device)) if self.device else self.generator()
+
+        # project mask design onto images
+        generator_faces = self.project_mask(mask, masked_faces) - .5
+
+        # get embeddings from discriminator
+        generator_embeddings = self.discriminator(generator_faces)
+
+        # determine distances from known, unmasked embeddings
+        difference = self.unmasked_embeddings.unsqueeze(0) - generator_embeddings.unsqueeze(1)
+        generator_distances = torch.linalg.norm(difference, dim=2)
+
+        # train generator
+        self.generator.optimizer.zero_grad()
+        generator_loss = self.generator.criterion(generator_distances, correct_ids)
+        generator_loss.backward(retain_graph=True)
+        self.generator.optimizer.step()
+
+        # train discriminator
+        detached_faces = generator_faces.detach()
+        detached_embeddings = self.discriminator(detached_faces)
+        difference = self.unmasked_embeddings.unsqueeze(0) - detached_embeddings.unsqueeze(1)
+        detached_distances = torch.linalg.norm(difference, dim=2)
+        self.discriminator.optimizer.zero_grad()
+        discriminator_loss = self.discriminator.criterion(detached_distances, correct_ids)
+        discriminator_loss.backward(retain_graph=True)
+        self.discriminator.optimizer.step()
+
+        # return data to CPU if necessary
+        if self.device:
+            inputs = inputs.to(torch.device('cpu'))
+            correct_outputs = correct_outputs.to(torch.device('cpu'))
+        return float(generator_loss) / generator_distances.shape[0], float(discriminator_loss) / detached_distances.shape[0]
 
     def evaluate(self, inputs, correct_classes, batch_size=64):
         '''Evaluate classification accuracy of GAN for given inputs'''

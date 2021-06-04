@@ -12,6 +12,9 @@ from gan import Generator, Projector, Discriminator, GAN
 import argparse
 
 
+torch.autograd.set_detect_anomaly(True)
+
+
 def main(num_faces, cuda, verbose=False):
     # set computation device (None/CPU if in development mode, CUDA otherwise)
     device = torch.device('cuda:0') if cuda else None
@@ -65,8 +68,8 @@ def main(num_faces, cuda, verbose=False):
     test_input, test_output = masked_faces[split:], torch.Tensor(idx_to_face_id[split:]).long()
 
     # train
-    gan.fit(train_input, train_output, num_epochs=1)
-    # gan.fit(train_input, train_output, num_epochs=100)
+    # gan.fit(train_input, train_output, num_epochs=20)
+    gan.fit(train_input, train_output, num_epochs=100)
     # gan.learning_rate = 2e-4
     #gan.fit(train_input, train_output, num_epochs=100)
 
@@ -104,8 +107,8 @@ def main(num_faces, cuda, verbose=False):
     # evaluate accuracy
     train_accuracy = gan.evaluate(train_input, train_output)
     test_accuracy = gan.evaluate(test_input, test_output)
-    masked_accuracy = gan.discriminator.evaluate(masked_faces, unmasked_faces)
-    unmasked_accuracy = gan.discriminator.evaluate(unmasked_faces, unmasked_faces)
+    masked_accuracy = gan.discriminator_evaluate(masked_faces, unmasked_faces)
+    unmasked_accuracy = gan.discriminator_evaluate(unmasked_faces, unmasked_faces)
     print('facial recognition accuracy for...')
     print('   random choice:\t\t{:.1f}%'.format(100 / num_faces))
     print('   training images:\t\t{:.1f}%'.format(100 * train_accuracy))
