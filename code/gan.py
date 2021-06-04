@@ -322,7 +322,16 @@ class GAN():
         discriminator_loss.backward(retain_graph=True)
         self.discriminator.optimizer.step()
 
-        # train discriminator (masked)
+        # train discriminator (original masks)
+        masked_embeddings = self.discriminator(masked_faces)
+        difference = self.unmasked_embeddings.unsqueeze(0) - masked_embeddings.unsqueeze(1)
+        masked_distances = torch.linalg.norm(difference, dim=2)
+        self.discriminator.optimizer.zero_grad()
+        discriminator_loss = self.discriminator.criterion(masked_distances, correct_ids)
+        discriminator_loss.backward(retain_graph=True)
+        self.discriminator.optimizer.step()
+
+        # train discriminator (generator masks)
         detached_faces = generator_faces.detach()
         detached_embeddings = self.discriminator(detached_faces)
         difference = self.unmasked_embeddings.unsqueeze(0) - detached_embeddings.unsqueeze(1)
