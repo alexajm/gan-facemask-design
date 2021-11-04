@@ -2,6 +2,7 @@ data/masked/*
 data/unmasked/*
 data/transparent/*
 .DS_Store
-venv_gan/
+venv/
 .ipynb_checkpoints/
 */__pycache__/
+cvpr_2022/
