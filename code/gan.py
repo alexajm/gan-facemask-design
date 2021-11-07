@@ -7,7 +7,7 @@ import utils
 
 
 class Generator(nn.Module):
-    def __init__(self, learning_rate=1e-3, weight_decay=1e-3):
+    def __init__(self, learning_rate=1e-3, weight_decay=1e-3, load_path=None):
         """Initialize generator for sampling facemask designs from latent space"""
         super(Generator, self).__init__()
         self.input_dim = 100
@@ -37,6 +37,10 @@ class Generator(nn.Module):
 
         # loss (cross entropy)
         self.criterion = nn.CrossEntropyLoss()
+
+        # load prior weights
+        if load_path:
+            self.load_state_dict(torch.load(load_path))
 
     def forward(self, latent_=None):
         """Generate a facemask design from the sampled latent space"""
