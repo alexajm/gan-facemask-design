@@ -1,4 +1,5 @@
 data/masked/*
+data/masked_projection/*
 data/unmasked/*
 data/transparent/*
 .DS_Store

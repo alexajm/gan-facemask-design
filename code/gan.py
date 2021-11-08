@@ -52,9 +52,10 @@ class Generator(nn.Module):
 
 
 class Projector(nn.Module):
-    def __init__(self, learning_rate=1e-3, load_path=None):
+    def __init__(self, learning_rate=1e-3, load_path=None, device=None):
         """Initialize projector for projecting facemask designs onto images of individuals"""
         super(Projector, self).__init__()
+        self.device = device
 
         # hyperparameters
         channels = [3, 6, 12, 18, 24, 1]
@@ -117,6 +118,10 @@ class Projector(nn.Module):
         # load prior weights
         if load_path:
             self.load_state_dict(torch.load(load_path))
+
+        # run on device
+        if device:
+            self.to(device)
 
     def forward(self, x):
         """One forward propagation of the projector for a batch of images"""

@@ -42,3 +42,25 @@ def train_batch(model, batch):
         inputs = inputs.to(torch.device("cpu"))
         correct_outputs = correct_outputs.to(torch.device("cpu"))
     return float(loss) / model_outputs.shape[0]
+
+
+def fit(model, inputs, correct_outputs, num_epochs=10):
+    """Train model on input/output pairs over desired number of epochs"""
+    epoch_loss = 0
+    for epoch in range(1, num_epochs + 1):
+        # sort data into minibatches
+        inputs, correct_outputs = shuffle_data(inputs, correct_outputs)
+        minibatches = batch_data(inputs, correct_outputs)
+
+        # train on each minibatch
+        epoch_loss = 0
+        for batch in minibatches:
+            epoch_loss += train_batch(model, batch)
+        epoch_loss /= len(minibatches)
+
+        # output loss
+        if epoch % 10 == 0:
+            print("Epoch {} loss: {}".format(epoch, epoch_loss))
+
+    # return training accuracy
+    return epoch_loss
