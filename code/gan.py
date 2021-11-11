@@ -208,7 +208,7 @@ class Discriminator(nn.Module):
         target_embeddings = self.forward(target)
         query_embeddings = self.forward(query)
 
-        # find distances between embeddings
+        # find distances between each pair of target and query embeddings
         target_embeddings = torch.unsqueeze(target_embeddings, 1)
         query_embeddings = torch.unsqueeze(query_embeddings, 0)
         distances = torch.norm(target_embeddings - query_embeddings, dim=2)
