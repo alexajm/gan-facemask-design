@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import sys
 from gan import Generator, Projector, Discriminator, GAN
 import argparse
+import time
 
 
 torch.autograd.set_detect_anomaly(True)
@@ -74,16 +75,12 @@ def main(num_faces, cuda, verbose=False):
     )
 
     # train
-    # gan.fit(train_input, train_output, num_epochs=20)
     gan.fit(train_input, static_faces, train_output, num_epochs=100)
-    # gan.fit(train_input, train_output, num_epochs=1)
-    # gan.fit(train_input, train_output, num_epochs=100)
-    # gan.learning_rate = 2e-4
-    # gan.fit(train_input, train_output, num_epochs=100)
 
-    # save generator model
-    save_path = "../models/generator.pt"
-    torch.save(gan.generator.state_dict(), save_path)
+    # save models
+    save_dir = "../models"
+    suffix = time.strftime("%Y%m%d_%H%M%S")
+    gan.save(save_dir, suffix)
 
     # display sample masks and faces
     plt.figure()

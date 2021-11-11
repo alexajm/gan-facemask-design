@@ -49,6 +49,7 @@ class Generator(nn.Module):
         y = self.h2(y)
         output = self.output(y)
         output = torch.reshape(output, self.output_dim)
+        return output
 
 
 class Projector(nn.Module):
@@ -516,3 +517,15 @@ class GAN:
                 / num_queries
             )
             return accuracy
+
+    def save(self, dir, suffix):
+        """Save all three models in `<dir>/<model>_<suffix>.pt` format"""
+        # format save paths
+        generator_path = "{}/generator_{}.pt".format(dir, suffix)
+        projector_path = "{}/projector_{}.pt".format(dir, suffix)
+        discriminator_path = "{}/discriminator_{}.pt".format(dir, suffix)
+
+        # save
+        torch.save(self.generator.state_dict(), generator_path)
+        torch.save(self.projector.state_dict(), projector_path)
+        torch.save(self.discriminator.finetune.state_dict(), discriminator_path)
