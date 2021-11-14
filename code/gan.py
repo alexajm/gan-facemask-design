@@ -4,6 +4,8 @@ from torch import nn, optim
 from facenet_pytorch import InceptionResnetV1
 import pdb
 import utils
+import time
+import matplotlib.pyplot as plt
 
 
 class Generator(nn.Module):
@@ -294,10 +296,15 @@ class GAN:
         generator_distances = torch.linalg.norm(difference, dim=2)
         return generator_distances
 
-    def fit(self, masked_faces, unmasked_faces, correct_ids, num_epochs=10):
+    def fit(
+        self, masked_faces, unmasked_faces, correct_ids, num_epochs=10, verbose=False
+    ):
         # set models to train mode
         self.generator.train()
         self.discriminator.train()
+
+        # print loss column headers
+        print("\n\t\t\t\tGenerator \t\tDiscriminator")
 
         # fit on data
         gen_epoch_loss = 0
@@ -319,13 +326,34 @@ class GAN:
             gen_epoch_loss /= len(minibatches)
             dis_epoch_loss /= len(minibatches)
 
-            # output loss
-            if epoch % 10 == 0:
+            # verbose output
+            if verbose and (epoch % 10 != 0):
                 print(
                     "Epoch {} losses: \t\t{} \t\t{}".format(
                         epoch, gen_epoch_loss, dis_epoch_loss
                     )
                 )
+
+            # output loss and save temp results
+            if epoch % 10 == 0:
+                # print
+                print(
+                    "Epoch {} losses: \t\t{} \t\t{}".format(
+                        epoch, gen_epoch_loss, dis_epoch_loss
+                    )
+                )
+
+                # save models
+                save_dir = "../models/temp"
+                self.save(save_dir, epoch)
+
+                # save mask
+                mask = self.generator()
+                mask = mask.detach().numpy()
+                mask = np.transpose(mask, (1, 2, 0))
+                plt.figure()
+                plt.imshow(mask)
+                plt.savefig("../figures/mask_evolution/{}.png".format(epoch))
 
     def shuffle_data(self, masked, unmasked, outputs):
         """Shuffle the first dimension of a set of input/output data"""
