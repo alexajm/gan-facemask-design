@@ -9,81 +9,67 @@ import matplotlib.pyplot as plt
 import sys
 from gan import Generator, Projector, Discriminator, GAN
 import argparse
+import time
+import os
+import utils
 
 
 torch.autograd.set_detect_anomaly(True)
 
 
-def main(num_faces, cuda, verbose=False):
+def main(num_faces, num_epochs, cuda, verbose=False):
     # set computation device (None/CPU if in development mode, CUDA otherwise)
     device = torch.device("cuda:0") if cuda else None
 
-    # load masked and unmasked faces
-    img_size = 128
-    masked_faces = torch.zeros((num_faces, 3, 128, 128))
-    unmasked_faces = torch.zeros((num_faces, 3, 128, 128))
-    face_id = 0
-    skipped = 0
-    idx_to_face_id = []
-    while face_id < num_faces:
-        # get image paths
-        face_id_text = str(100000 + face_id + skipped)[1:]
-        masked_path = "../data/masked/{}_Mask.jpg".format(face_id_text)
-        unmasked_path = "../data/unmasked/{}.png".format(face_id_text)
+    # load faces
+    masked_dir = "../data/masked"
+    masked_suffix = "_Mask.jpg"
+    unmasked_dir = "../data/unmasked"
+    unmasked_suffix = ".png"
+    masked_faces, unmasked_faces, idx_to_face_id = utils.load_faces(
+        num_faces, masked_dir, masked_suffix, unmasked_dir, unmasked_suffix
+    )
+    if verbose:
+        print("loaded {} faces...".format(num_faces))
 
-        # load images
-        try:
-            masked_img = Image.open(masked_path)
-            unmasked_img = Image.open(unmasked_path)
-        except:  # skip missing images
-            skipped += 1
-            continue
-
-        # process images
-        masked_tensor = Resize((img_size, img_size))(ToTensor()(masked_img)) - 0.5
-        unmasked_tensor = Resize((img_size, img_size))(ToTensor()(unmasked_img)) - 0.5
-        if masked_tensor is None or unmasked_tensor is None:
-            skipped += 1
-            continue
-
-        # save images to respective tensors
-        masked_faces[face_id] = masked_tensor
-        unmasked_faces[face_id] = unmasked_tensor
-        idx_to_face_id.append(int(face_id + skipped))
-        face_id += 1
+    # split data into training and testing sets
+    split = int(0.8 * num_faces)
+    train_input, train_output = (
+        masked_faces[:split],
+        torch.Tensor((range(0, split))).long(),
+    )
+    test_input, test_output = (
+        masked_faces[split:],
+        torch.Tensor(range(split, num_faces)).long(),
+    )
+    static_faces = unmasked_faces[:split]
 
     # instantiate GAN
     generator = Generator(learning_rate=2e-3)
     projector = Projector(load_path="../models/projector.pt")
     discriminator = Discriminator()
     gan = GAN(generator, projector, discriminator, device=device)
+    if verbose:
+        print("instantiated GAN...")
 
     # compute and store unmasked discriminator embeddings
     gan.compute_unmasked_embeddings(unmasked_faces)
 
-    # split data into training and testing sets
-    split = int(0.8 * num_faces)
-    static_faces = unmasked_faces[:split]
-    train_input, train_output = (
-        masked_faces[:split],
-        torch.Tensor(idx_to_face_id[:split]).long(),
-    )
-    test_input, test_output = (
-        masked_faces[split:],
-        torch.Tensor(idx_to_face_id[split:]).long(),
-    )
-
     # train
-    # gan.fit(train_input, train_output, num_epochs=20)
-    gan.fit(train_input, static_faces, train_output, num_epochs=100)
-    # gan.fit(train_input, train_output, num_epochs=1)
-    # gan.fit(train_input, train_output, num_epochs=100)
-    # gan.learning_rate = 2e-4
-    # gan.fit(train_input, train_output, num_epochs=100)
+    if verbose:
+        print("training initiated...")
+    gan.fit(
+        train_input, static_faces, train_output, num_epochs=num_epochs, verbose=verbose
+    )
+    if verbose:
+        print("\ntraining complete...")
 
-    # save generator model
-    save_path = "../models/generator.pt"
-    torch.save(gan.generator.state_dict(), save_path)
+    # save models
+    save_dir = "../models"
+    suffix = time.strftime("%Y%m%d_%H%M%S")
+    gan.save(save_dir, suffix)
+    if verbose:
+        print("models saved under '{}/<model>_{}'...".format(save_dir, suffix))
 
     # display sample masks and faces
     plt.figure()
@@ -93,8 +79,7 @@ def main(num_faces, cuda, verbose=False):
     for idx in range(5):
         # original image
         face_id = idx_to_face_id[idx]
-        face_id_text = str(100000 + face_id)[1:]
-        original_img = Image.open("../data/masked/{}_Mask.jpg".format(face_id_text))
+        original_img = Image.open("../data/masked/{}_Mask.jpg".format(face_id))
         axes[0, idx].imshow(original_img)
         axes[0, idx].get_xaxis().set_ticks([])
         axes[0, idx].get_yaxis().set_ticks([])
@@ -120,7 +105,7 @@ def main(num_faces, cuda, verbose=False):
     test_accuracy = gan.evaluate(test_input, test_output)
     masked_accuracy = gan.discriminator_evaluate(masked_faces, unmasked_faces)
     unmasked_accuracy = gan.discriminator_evaluate(unmasked_faces, unmasked_faces)
-    print("facial recognition accuracy for...")
+    print("\nfacial recognition accuracy for...")
     print("   random choice:\t\t{:.1f}%".format(100 / num_faces))
     print("   training images:\t\t{:.1f}%".format(100 * train_accuracy))
     print("   testing images:\t\t{:.1f}%".format(100 * test_accuracy))
@@ -140,6 +125,9 @@ def main(num_faces, cuda, verbose=False):
         file.write(
             "\n   original unmasked images:\t{:.1f}%".format(100 * unmasked_accuracy)
         )
+    if verbose:
+        print("\nsaved results...")
+        print("done:)")
 
 
 if __name__ == "__main__":
@@ -147,6 +135,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "num_faces", help="number of faces to train the network on", type=int
+    )
+    parser.add_argument(
+        "num_epochs", help="number of epochs to train the network over", type=int
     )
     parser.add_argument(
         "--cuda",
@@ -158,5 +149,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # can't batch <20 faces
+    if args.num_faces < 20:
+        print("WARNING: cannot batch <20 faces (num_faces = {})".format(args.num_faces))
+
     # run code
-    main(args.num_faces, args.cuda, args.verbose)
+    main(args.num_faces, args.num_epochs, args.cuda, args.verbose)

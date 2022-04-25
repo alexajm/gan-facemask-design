@@ -4,11 +4,22 @@ from torch import nn, optim
 from facenet_pytorch import InceptionResnetV1
 import pdb
 import utils
+import time
+import matplotlib.pyplot as plt
 
+# TODO: add "returns" to docstrings
+# TODO: unify naming conventions across all functions--the same variables are often being passed to different functions under different names
+# TODO: add unit tests
 
 class Generator(nn.Module):
     def __init__(self, learning_rate=1e-3, weight_decay=1e-3, load_path=None):
-        """Initialize generator for sampling facemask designs from latent space"""
+        """Initialize generator for sampling facemask designs from latent space.
+        
+        # Arguments
+        * `learning_rate` - learning rate used during parameter update step, defaults to 1e-3
+        * `weight_decay` - weight on the L2 regularization term during optimization, defaults to 1e-3
+        * `load_path` - optional path to load existing weights from, defaults to None
+        """
         super(Generator, self).__init__()
         self.input_dim = 100
         self.output_dim = (3, 128, 128)
@@ -43,18 +54,31 @@ class Generator(nn.Module):
             self.load_state_dict(torch.load(load_path))
 
     def forward(self, latent_=None):
-        """Generate a facemask design from the sampled latent space"""
+        """Generate a facemask design from the sampled latent space.
+        
+        # Arguments
+        * `latent_` - optional latent sample, defaults to a 100x1 vector of
+            random numbers sampled uniformly from [0, 1)
+        """
         latent = latent_ if latent_ is not None else torch.rand(1, 100)
         y = self.h1(latent)
         y = self.h2(y)
         output = self.output(y)
         output = torch.reshape(output, self.output_dim)
+        return output
 
 
 class Projector(nn.Module):
-    def __init__(self, learning_rate=1e-3, load_path=None):
-        """Initialize projector for projecting facemask designs onto images of individuals"""
+    def __init__(self, learning_rate=1e-3, load_path=None, device=None):
+        """Initialize projector for projecting facemask designs onto images of individuals.
+        
+        # Arguments
+        * `learning_rate` - learning rate used during parameter update step, defaults to 1e-3
+        * `load_path` - optional path to load existing weights from, defaults to None
+        * `device` - optional PyTorch device to run project on (e.g. CUDA, CPU), defaults to None
+        """
         super(Projector, self).__init__()
+        self.device = device
 
         # hyperparameters
         channels = [3, 6, 12, 18, 24, 1]
@@ -118,6 +142,10 @@ class Projector(nn.Module):
         if load_path:
             self.load_state_dict(torch.load(load_path))
 
+        # run on device
+        if device:
+            self.to(device)
+
     def forward(self, x):
         """One forward propagation of the projector for a batch of images"""
         y = self.h1(x)
@@ -128,12 +156,23 @@ class Projector(nn.Module):
         return y
 
     def fit(self, inputs, outputs, num_epochs=10):
-        """Train projector given masked faces as input and transparency masks as outputs"""
+        """Train projector given masked faces as input and transparency masks as outputs.
+        
+        # Arguments
+        * `inputs` - a batch of faces to train on
+        * `outputs` - the ID of every input face
+        * `num_epochs` - number of epochs to run, defaults to 10
+        """
         self.train()
         return utils.fit(self, inputs, outputs, num_epochs=num_epochs)
 
     def predict(self, x, process=False):
-        """Predict transparency mask for faces not trained on"""
+        """Predict transparency mask for faces not trained on.
+        
+        # Arguments
+        * `x` - face(s) to generate transparency mask(s) for
+        * `process` - whether to post-process the transparency masks, defaults to False
+        """
         if len(x.shape) < 4:  # pre-process un-batched inputs
             x = torch.unsqueeze(x, 0)
         y = self.forward(x)
@@ -143,7 +182,12 @@ class Projector(nn.Module):
         return y
 
     def evaluate(self, inputs, correct_outputs):
-        """Evaluate loss of projector for given inputs"""
+        """Evaluate loss of projector for given inputs
+        
+        # Arguments
+        * `inputs` - a batch of faces to train on
+        * `correct_outputs` - the correct ID of every input face
+        """
         # set model to eval mode
         self.eval()
 
@@ -156,7 +200,13 @@ class Projector(nn.Module):
         return float(loss) / n_examples
 
     def project_mask(self, facemask, masked_faces, process=False):
-        """Project a facemask design onto images of masked individuals"""
+        """Project a facemask design onto images of masked individuals.
+        
+        # Arguments
+        * `facemask` - a 128x128 RGB facemask
+        * `masked_faces` - the masked faces to replace with the desired facemask
+        * `process` - whether to post-process the transparency masks, defaults to False
+        """
         transparency_masks = self.predict(masked_faces, process=process)
         if masked_faces.device.type == "cuda":
             transparency_masks = transparency_masks.to(
@@ -176,7 +226,13 @@ class Projector(nn.Module):
 
 class Discriminator(nn.Module):
     def __init__(self, learning_rate=1e-3, regularization=1e-2, load_path=None):
-        """Initialize discriminator as pre-trained facial recognition model"""
+        """Initialize discriminator as pre-trained facial recognition model.
+        
+        # Arguments
+        * `learning_rate` - learning rate used during parameter update step, defaults to 1e-3
+        * `regularization` - L1 regularization weight acting on the fine-tuning layer
+        * `load_path` - optional path to load existing weights from, defaults to None
+        """
         super(Discriminator, self).__init__()
         self.model = InceptionResnetV1(pretrained="vggface2").eval()
 
@@ -193,16 +249,26 @@ class Discriminator(nn.Module):
             self.finetune.load_state_dict(torch.load(load_path))
 
     def forward(self, img):
-        """One forward propagation of the discriminator for a batch of images"""
+        """One forward propagation of the discriminator for a batch of images.
+        
+        # Arguments
+        * `img` - a batch of images to perform facial recognition on
+        """
         return self.model(img)
 
     def evaluate(self, query, target):
-        """Evaluate classification accuracy of discriminator for given inputs"""
+        """Evaluate classification accuracy of discriminator for given inputs.
+        
+        # Arguments
+        * `query` - the input images to perform facial recognition on
+        * `target` - the "known" faces that the queried images are compared to
+        """
+        
         # get embeddings
         target_embeddings = self.forward(target)
         query_embeddings = self.forward(query)
 
-        # find distances between embeddings
+        # find distances between each pair of target and query embeddings
         target_embeddings = torch.unsqueeze(target_embeddings, 1)
         query_embeddings = torch.unsqueeze(query_embeddings, 0)
         distances = torch.norm(target_embeddings - query_embeddings, dim=2)
@@ -222,9 +288,10 @@ class GAN:
         """
         Initialize GAN
 
-        generator: generative network for producing mask designs (None -> 128x128 RGB facemask)
-        projector: supervised network for projecting mask designs onto images of faces (128x128 RBG image -> 128x128 transparency mask)
-        discriminator: facial recognition network for id-ing faces (128x128 RGB image -> 512-dimensional vector embedding)
+        # Arguments        
+        * `generator` - generative network for producing mask designs (None -> 128x128 RGB facemask)
+        * `projector` - supervised network for projecting mask designs onto images of faces (128x128 RBG image -> 128x128 transparency mask)
+        * `discriminator` - facial recognition network for id-ing faces (128x128 RGB image -> 512-dimensional vector embedding)
         """
         super(GAN, self).__init__()
         self.generator = generator
@@ -244,7 +311,11 @@ class GAN:
         self.criterion = self.generator.criterion
 
     def compute_unmasked_embeddings(self, unmasked_faces):
-        """Compute and store database of embeddings for unmasked faces"""
+        """Compute and store database of embeddings for unmasked faces.
+        
+        # Arguments
+        * `unmasked_faces` - a batch of images of unmasked faces
+        """
         if self.device:
             unmasked_faces = unmasked_faces.to(self.device)
         self.unmasked_embeddings = self.discriminator(unmasked_faces).detach()
@@ -252,11 +323,20 @@ class GAN:
             unmasked_faces = unmasked_faces.to(torch.device("cpu"))
 
     def generate_mask(self):
-        """Generate a facemask design"""
+        """Generate a facemask design.
+        
+        Returns a 128x128 RGB image of a facemask.
+        """
         return self.generator()
 
     def project_mask(self, facemask, masked_faces, process=False):
-        """Project a facemask design onto images of masked individuals"""
+        """Project a facemask design onto images of masked individuals.
+        
+        # Arguments
+        * `facemask` - a 128x128 RGB facemask
+        * `masked_faces` - the masked faces to replace with the desired facemask
+        * `process` - whether to post-process the transparency masks, defaults to False
+        """
         return self.projector.project_mask(facemask, masked_faces, process=process)
 
     def one_hot(self, ids):
@@ -267,7 +347,11 @@ class GAN:
         return classes
 
     def forward(self, masked_faces):
-        """One forward propagation of the GAN for a batch of faces"""
+        """One forward propagation of the GAN for a batch of faces.
+        
+        # Arguments
+        * `masked_faces` - a batch of 128x128 RGB images of masked faces
+        """
         # generate mask design from latent sample
         mask = (
             self.generator(torch.rand(1, 100).to(self.device))
@@ -288,10 +372,22 @@ class GAN:
         generator_distances = torch.linalg.norm(difference, dim=2)
         return generator_distances
 
-    def fit(self, masked_faces, unmasked_faces, correct_ids, num_epochs=10):
+    def fit(
+        self, masked_faces, unmasked_faces, correct_ids, num_epochs=10, verbose=False
+    ):
+        """Train the generator and discriminator against each other simultaneously.
+        
+        # Arguments
+        * `masked_faces` - a batch of 128x128 RGB images of masked faces
+        * `unmasked_faces` - a batch of 128x128 RGB images of unmasked faces
+        * `correct_ids` - the ID of every face in the batch
+        """
         # set models to train mode
         self.generator.train()
         self.discriminator.train()
+
+        # print loss column headers
+        print("\n\t\t\t\tGenerator \t\tDiscriminator")
 
         # fit on data
         gen_epoch_loss = 0
@@ -313,16 +409,43 @@ class GAN:
             gen_epoch_loss /= len(minibatches)
             dis_epoch_loss /= len(minibatches)
 
-            # output loss
-            if epoch % 10 == 0:
+            # verbose output
+            if verbose and (epoch % 10 != 0):
                 print(
                     "Epoch {} losses: \t\t{} \t\t{}".format(
                         epoch, gen_epoch_loss, dis_epoch_loss
                     )
                 )
 
+            # output loss and save temp results
+            if epoch % 10 == 0:
+                # print
+                print(
+                    "Epoch {} losses: \t\t{} \t\t{}".format(
+                        epoch, gen_epoch_loss, dis_epoch_loss
+                    )
+                )
+
+                # save models
+                save_dir = "../models/temp"
+                self.save(save_dir, epoch)
+
+                # save mask
+                mask = self.generator()
+                mask = mask.detach().numpy()
+                mask = np.transpose(mask, (1, 2, 0))
+                plt.figure()
+                plt.imshow(mask)
+                plt.savefig("../figures/mask_evolution/{}.png".format(epoch))
+
     def shuffle_data(self, masked, unmasked, outputs):
-        """Shuffle the first dimension of a set of input/output data"""
+        """Shuffle the first dimension of a set of input/output data.
+        
+        # Arguments
+        * `masked` - a batch of 128x128 RGB images of masked faces
+        * `unmasked` - a batch of 128x128 RGB images of unmasked faces
+        * `outputs` - the ID of every face in the batch
+        """
         n_examples = outputs.shape[0]
         shuffled_indices = torch.randperm(n_examples)
         masked = masked[shuffled_indices]
@@ -331,7 +454,16 @@ class GAN:
         return masked, unmasked, outputs
 
     def batch_data(self, masked, unmasked, outputs, batch_size=16):
-        """Convert full input/output pairs to a list of batched tuples"""
+        """Convert full input/output pairs to a list of batched tuples.
+        
+        Returns a list of batches formatted as a (masked faces, unmasked faces, face IDs) tuple.
+        
+        # Arguments
+        * `masked` - a set of 128x128 RGB images of masked faces
+        * `unmasked` - a set of 128x128 RGB images of unmasked faces
+        * `outputs` - the ID of every face in the set
+        * `batch_size` - the number of images to put in each batch, defaults to 16
+        """
         n_examples = outputs.shape[0]
         return [
             (
@@ -343,7 +475,11 @@ class GAN:
         ]
 
     def train_batch(self, batch):
-        """Perform one iteration of model training given a single batch"""
+        """Perform one iteration of model training given a single batch.
+        
+        # Arguments
+        * `batch` - a training batch formatted as a (masked faces, unmasked faces, face IDs) tuple
+        """
         # send data to CUDA if necessary
         masked_faces, unmasked_faces, correct_ids = batch
         if self.device:
@@ -424,7 +560,13 @@ class GAN:
         )
 
     def evaluate(self, inputs, correct_classes, batch_size=16):
-        """Evaluate classification accuracy of GAN for given inputs"""
+        """Evaluate classification accuracy of GAN for given inputs.
+        
+        # Arguments
+        * `inputs` - a set of images of faces
+        * `correct_classes` - the correct IDs of every face
+        * `batch_size` - the number of images to put in each batch, defaults to 16
+        """
         # set model to eval mode
         self.generator.eval()
 
@@ -462,7 +604,13 @@ class GAN:
             return accuracy
 
     def discriminator_evaluate(self, query, target, batch_size=16):
-        """Evaluate classification accuracy of discriminator for given inputs"""
+        """Evaluate classification accuracy of discriminator for given inputs.
+        
+        # Arguments
+        * `query` - the input images to perform facial recognition on
+        * `target` - the "known" faces that the queried images are compared to
+        * `batch_size` - the number of images to put in each batch, defaults to 16
+        """
         if self.device:
             # compute in batches
             accuracies = []
@@ -511,3 +659,20 @@ class GAN:
                 / num_queries
             )
             return accuracy
+
+    def save(self, dir, suffix):
+        """Save all three models in `<dir>/<model>_<suffix>.pt` format.
+        
+        # Arguments
+        * `dir` - directory to save models in
+        * `suffix` - suffix to label models with
+        """
+        # format save paths
+        generator_path = "{}/generator_{}.pt".format(dir, suffix)
+        projector_path = "{}/projector_{}.pt".format(dir, suffix)
+        discriminator_path = "{}/discriminator_{}.pt".format(dir, suffix)
+
+        # save
+        torch.save(self.generator.state_dict(), generator_path)
+        torch.save(self.projector.state_dict(), projector_path)
+        torch.save(self.discriminator.finetune.state_dict(), discriminator_path)
